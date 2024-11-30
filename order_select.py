@@ -76,20 +76,24 @@ class LoadThread(QThread):
 
     # 处理每一行
     def handleRow(self,cdr_files_map,row_data):
-        order_num = row_data['订单编号']
+        order_num = row_data.get('订单编号')
+        if not order_num:
+            order_num = row_data.get('订单号')
         if not order_num:
             self.appendRow(row_data, self.error_package)
             return
         # 买家留言
-        if not self.is_empty_string(row_data['备注']) or not self.is_empty_string(row_data['买家留言']):
+        if not self.is_empty_string(row_data.get('备注')) or not self.is_empty_string(row_data.get('买家留言')):
             self.appendRow(row_data,self.remain_package)
             return
         # 处理多件
-        good_nums = int(row_data['商品数量'])
-        if good_nums > 1:
+        good_nums = row_data.get('商品数量')
+        if not good_nums:
+            good_nums = row_data.get('数量')
+        if int(good_nums) > 1:
             self.appendRow(row_data,self.multiple_order_package)
             return
-        specification_name_str  = row_data['规格名称']
+        specification_name_str  = row_data.get('规格名称')
         style,longest_side = self.parse_specification_name_str(specification_name_str)
         cdr_file_path = cdr_files_map.get(style)
         if not cdr_file_path:
@@ -102,7 +106,56 @@ class LoadThread(QThread):
             return
         # 拷贝文件，并把文件名改成订单编号
         dst_dir = os.path.join(self.folder2,str(longest_side))
-        self.copy_file_with_new_name(cdr_file_path,dst_dir,order_num)
+        # self.copy_file_with_new_name(cdr_file_path,dst_dir,order_num)
+        self.copy_cdr(row_data,style,longest_side,cdr_file_path)
+
+    def copy_cdr(self,row_data,style, longest_side,cdr_file_path):
+        order_num = row_data.get('订单编号')
+        if not order_num:
+            order_num = row_data.get('订单号')
+        cdr_base_path = os.path.join(self.folder2,'白底款')
+        if 'T' in style or 't' in style:
+            # 透明款
+            cdr_base_path =  os.path.join(self.folder2,'透明款')
+        # 拷贝文件，并把文件名改成订单编号
+        dst_dir = os.path.join(cdr_base_path, str(longest_side))
+        self.copy_file_with_new_name(cdr_file_path, dst_dir, order_num)
+        cdr_excel_path = os.path.join(dst_dir, '统计数据.xlsx')
+        self.appendCdrRow(row_data,style,longest_side,cdr_excel_path)
+
+    def appendCdrRow(self, row_data,style, longest_side, file_path):
+        num = row_data.get('数量')
+        if not num:
+            num = row_data.get('商品数量')
+        order_num =  row_data.get('订单编号')
+        if not order_num:
+            order_num = row_data.get('订单号')
+        new_row_data  = {
+            '订单编号': order_num,
+            '店铺名称': row_data.get('店铺名称'),
+            '规格名称': row_data.get('规格名称'),
+            '规格':style,
+            '最长边':longest_side,
+            '数量':num,
+            '总价': row_data.get('总价'),
+            '实收': row_data.get('实收')
+
+        }
+        if os.path.exists(file_path):
+            # 文件已存在，打开已有文件
+            wb = openpyxl.load_workbook(file_path)
+            sheet = wb.active
+        else:
+            # 文件不存在，创建一个新的工作簿
+            wb = openpyxl.Workbook()
+            sheet = wb.active
+            # 写入标题行（假设 data 的第一个字典是列名）
+            headers = list(new_row_data.keys())
+            sheet.append(headers)
+        values = list(new_row_data.values())
+        sheet.append(values)
+        # 保存文件
+        wb.save(file_path)
 
     def copy_file_with_new_name(self,src_file, dst_dir, new_name=None):
         # 获取源文件的文件名和扩展名
@@ -140,7 +193,7 @@ class LoadThread(QThread):
 
     def parse_specification_name_str(self,specification_name_str):
         # 提取款号 (假设款号是字母+数字的组合，可以匹配如 CD115-A)
-        match_model = re.search(r'([A-Za-z0-9\-]+)', specification_name_str)
+        match_model = re.search(r'([A-Za-z]+\d+-[A-Za-z])', specification_name_str)
         # 提取所有尺寸，可能的格式为：40cm高x35cm宽 或 60x60cm
         size_matches = re.findall(r'(\d+)(?=cm|x|CM|厘米|\*|X|公分)', specification_name_str)
         if match_model and size_matches:
@@ -198,10 +251,10 @@ class FolderSelector(QWidget):
         self.label1 = QLabel('请选择图库文件夹:')
         self.label2 = QLabel('请选择输出文件夹（建议文件夹内容为空）:')
 
-        # self.folder1_path = QLabel('未选择文件夹')
-        # self.folder2_path = QLabel('未选择文件夹')
-        self.folder1_path = QLabel('//xinguo/贴纸.生产资料/美工做的新款，待检查')
-        self.folder2_path = QLabel('E:/导出')
+        self.folder1_path = QLabel('未选择文件夹')
+        self.folder2_path = QLabel('未选择文件夹')
+        # self.folder1_path = QLabel('//xinguo/贴纸.生产资料/美工做的新款，待检查')
+        # self.folder2_path = QLabel('E:/导出')
 
         self.select_folder1_btn = QPushButton('图库文件夹')
         self.select_folder2_btn = QPushButton('输出文件夹')
@@ -235,8 +288,8 @@ class FolderSelector(QWidget):
         self.open_button = QPushButton('订单列表，请选择 .xlsx 文件')
         self.open_button.clicked.connect(self.open_file_dialog)
         # 创建标签，用于显示选择的文件路径
-        # self.order_file = QLabel('未选择文件', self)
-        self.order_file = QLabel('E:/627个.xlsx', self)
+        self.order_file = QLabel('未选择文件', self)
+        # self.order_file = QLabel('E:/627个.xlsx', self)
         # 将按钮和标签加入布局
         layout.addWidget(self.open_button)
         layout.addWidget(self.order_file)

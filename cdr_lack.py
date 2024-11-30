@@ -73,7 +73,7 @@ class LoadThread(QThread):
         cdr_file_path = cdr_files_map.get(style)
         if not cdr_file_path:
             # 款号不存在
-            self.appendRow(row_data, self.lack_package)
+            self.appendCdrRow(row_data,style, longest_side, self.lack_package)
             return
         if not self.is_valid_longest_side(longest_side):
             # 最长边解析异常
@@ -82,7 +82,7 @@ class LoadThread(QThread):
 
     def parse_specification_name_str(self,specification_name_str):
         # 提取款号 (假设款号是字母+数字的组合，可以匹配如 CD115-A)
-        match_model = re.search(r'([A-Za-z0-9\-]+)', specification_name_str)
+        match_model = re.search(r'([A-Za-z]+\d+-[A-Za-z])', specification_name_str)
         # 提取所有尺寸，可能的格式为：40cm高x35cm宽 或 60x60cm
         size_matches = re.findall(r'(\d+)(?=cm|x|CM|厘米|\*|X|公分)', specification_name_str)
         if match_model and size_matches:
@@ -105,6 +105,37 @@ class LoadThread(QThread):
             headers = list(row_data.keys())
             sheet.append(headers)
         values = list(row_data.values())
+        sheet.append(values)
+        # 保存文件
+        wb.save(file_path)
+
+    def appendCdrRow(self, row_data,style, longest_side, file_path):
+        num = row_data.get('数量')
+        if not num:
+            num = row_data.get('商品数量')
+        new_row_data  = {
+            '订单编号': row_data.get('订单编号'),
+            '店铺名称': row_data.get('店铺名称'),
+            '规格名称': row_data.get('规格名称'),
+            '规格':style,
+            '最长边':longest_side,
+            '数量':num,
+            '总价': row_data.get('总价'),
+            '实收': row_data.get('实收')
+
+        }
+        if os.path.exists(file_path):
+            # 文件已存在，打开已有文件
+            wb = openpyxl.load_workbook(file_path)
+            sheet = wb.active
+        else:
+            # 文件不存在，创建一个新的工作簿
+            wb = openpyxl.Workbook()
+            sheet = wb.active
+            # 写入标题行（假设 data 的第一个字典是列名）
+            headers = list(new_row_data.keys())
+            sheet.append(headers)
+        values = list(new_row_data.values())
         sheet.append(values)
         # 保存文件
         wb.save(file_path)
@@ -152,8 +183,8 @@ class FolderSelector(QWidget):
         # 创建控件
         self.label1 = QLabel('请选择图库文件夹:')
 
-        # self.folder1_path = QLabel('未选择文件夹')
-        self.folder1_path = QLabel('//xinguo/贴纸.生产资料/美工做的新款，待检查')
+        self.folder1_path = QLabel('未选择文件夹')
+        # self.folder1_path = QLabel('//xinguo/贴纸.生产资料/美工做的新款，待检查')
 
 
         self.select_folder1_btn = QPushButton('图库文件夹')
