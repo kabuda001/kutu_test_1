@@ -1,7 +1,7 @@
 import os
 import sys
 
-from Demos.OpenEncryptedFileRaw import dst_dir
+
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog, QHBoxLayout, QLabel,QMessageBox
 from PyQt5.QtCore import QThread, pyqtSignal
 import openpyxl,re,shutil
