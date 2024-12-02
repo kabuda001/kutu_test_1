@@ -64,11 +64,13 @@ class LoadThread(QThread):
 
     # 处理每一行
     def handleRow(self, cdr_files_map, row_data):
-        order_num = row_data['订单编号']
+        order_num = row_data.get('订单编号')
+        if not order_num:
+            order_num = row_data.get('订单号')
         if not order_num:
             self.appendRow(row_data, self.error_package)
             return
-        specification_name_str = row_data['规格名称']
+        specification_name_str = row_data.get('规格名称')
         style, longest_side = self.parse_specification_name_str(specification_name_str)
         cdr_file_path = cdr_files_map.get(style)
         if not cdr_file_path:
@@ -113,8 +115,11 @@ class LoadThread(QThread):
         num = row_data.get('数量')
         if not num:
             num = row_data.get('商品数量')
+        order_num = row_data.get('订单编号')
+        if not order_num:
+            order_num = row_data.get('订单号')
         new_row_data  = {
-            '订单编号': row_data.get('订单编号'),
+            '订单编号': order_num,
             '店铺名称': row_data.get('店铺名称'),
             '规格名称': row_data.get('规格名称'),
             '规格':style,
