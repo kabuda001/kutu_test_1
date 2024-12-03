@@ -1,14 +1,10 @@
 import win32com.client
 
-# 连接 CorelDRAW 应用
-coreldraw = win32com.client.Dispatch("CorelDRAW.Application")
-coreldraw.OpenDocument("\\\\xinguo\\贴纸.生产资料\\美工做的新款，待检查\\11月\\11.25\\DK182-F.cdr")
-
 
 def get_shape_size_in_units(shape):
     """ 获取形状的宽度和高度，并根据单位转换为合适的单位 """
     # 获取当前文档的单位
-    unit = coreldraw.ActiveDocument.Unit  # 单位可以是 mm, cm, inches, pixels 等
+    unit = corel.ActiveDocument.Unit  # 单位可以是 mm, cm, inches, pixels 等
     width = shape.SizeWidth
     height = shape.SizeHeight
 
@@ -31,27 +27,64 @@ def get_shape_size_in_units(shape):
 
     return width, height
 
-# 获取页面长宽
-doc = coreldraw.ActiveDocument
-width = doc.ActivePage.SizeWidth
-height = doc.ActivePage.SizeHeight
-unit = coreldraw.ActiveDocument.Unit
-# print(unit)
-# 获取所有对象并打印每个对象的宽度和高度
-for shape in doc.ActivePage.Shapes:
-    # print(type(shape))
-    if shape.Type == 1:  # 检查是否是图形对象 (1 是形状类型)
-        width,height = get_shape_size_in_units(shape)
-        # width = shape.SizeWidth  # 获取宽度
-        # height = shape.SizeHeight  # 获取高度
-        print(f"形状 ID: {shape.ID}, 宽度: {width}, 高度: {height}")
+def change_length(original_width,original_height,new_height):
 
-    elif shape.Type == 5:  # 如果是图片类型
-        # width = shape.SizeWidth
-        # height = shape.SizeHeight
-        width, height = get_shape_size_in_units(shape)
-        print(f"形状NAME: {shape.Name},宽度: {width}, 高度: {height}")
-# print(f"CDR 文件宽度: {width}, 高度: {height}")
+    # 计算缩放比例（目标高度 / 原始高度）
+    scale_factor = new_height / original_height
 
-# 关闭文档
-doc.Close()
+    # 计算新的宽度
+    new_width = original_width * scale_factor
+
+
+    # 获取解散后的所有形状（shapes）
+    shapes = doc.ActivePage.Shapes
+    for shape in shapes:
+        shape.SetSize(shape.SizeWidth * scale_factor, shape.SizeHeight * scale_factor)
+
+    # 输出调整后的宽度和高度（单位：mm）
+    print(f"原始宽度：{original_width} mm, 原始高度：{original_height} mm")
+    print(f"缩放后的宽度：{new_width} mm, 缩放后的高度：{new_height} mm")
+
+try:
+    # 连接 CorelDRAW 应用
+    corel = win32com.client.Dispatch("CorelDRAW.Application")
+    corel.Visible = True  # 不显示CorelDRAW界面，可以设置为True查看
+    doc = corel.OpenDocument("C:\\Users\\zhaoc\\Desktop\\测试\\ZC085-B.cdr")
+
+    # 打开 CDR 文件
+    # doc = corel.OpenDocument("C:\\path\\to\\your\\file.cdr")
+
+    # 获取页面上的所有对象
+    page = doc.Pages(1)  # 获取第一页
+    shapes = page.Shapes
+
+    # 清空所有选择（通过取消选中所有图形）
+    for shape in shapes:
+        shape.Selected = False
+
+
+
+    # 选择所有对象
+    for shape in shapes:
+        shape.Selected = True
+
+    # 获取当前选中的对象
+    selection = corel.ActiveSelection
+
+    # 创建一个组
+    group = selection.Group()
+    # 获取组合的组的宽度和高度
+    group_width, group_height = get_shape_size_in_units(group)
+
+    print(f"组合的组宽度: {group_width}, 高度: {group_height}")
+    change_length(group_width, group_height, 200)
+    # 保存为新的路径
+    doc.Save()
+    doc.Close()
+except Exception as e:
+    # print(f"发生错误: {e}")
+    print("发生错误:", e)
+finally:
+    # if 'corel' in locals():
+    #     corel.Quit()
+    pass

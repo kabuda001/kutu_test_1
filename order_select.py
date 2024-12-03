@@ -2,7 +2,7 @@ import os
 import sys
 
 from Demos.OpenEncryptedFileRaw import dst_dir
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog, QHBoxLayout, QLabel,QMessageBox
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog, QHBoxLayout, QLabel,QMessageBox, QRadioButton, QGroupBox
 from PyQt5.QtCore import QThread, pyqtSignal
 import openpyxl,re,shutil
 
@@ -12,11 +12,12 @@ class LoadThread(QThread):
     # 定义信号，当任务完成时发送消息
     finished_signal = pyqtSignal(str)
 
-    def __init__(self, folder1, folder2,order_file):
+    def __init__(self, folder1, folder2,order_file,copy_true):
         super().__init__()
         self.folder1 = folder1
         self.folder2 = folder2
         self.order_file = order_file
+        self.copy_true = copy_true
         self.lack_package = os.path.join(self.folder2, '缺cdr图.xlsx')
         self.error_package = os.path.join(self.folder2, '解析异常的订单.xlsx')
         self.multiple_order_package = os.path.join(self.folder2, '包含多件的订单.xlsx')
@@ -119,7 +120,8 @@ class LoadThread(QThread):
             cdr_base_path =  os.path.join(self.folder2,'透明款')
         # 拷贝文件，并把文件名改成订单编号
         dst_dir = os.path.join(cdr_base_path, str(longest_side))
-        self.copy_file_with_new_name(cdr_file_path, dst_dir, order_num)
+        if self.copy_true:
+            self.copy_file_with_new_name(cdr_file_path, dst_dir, order_num)
         cdr_excel_path = os.path.join(dst_dir, '统计数据.xlsx')
         self.appendCdrRow(row_data,style,longest_side,cdr_excel_path)
 
@@ -146,6 +148,9 @@ class LoadThread(QThread):
             wb = openpyxl.load_workbook(file_path)
             sheet = wb.active
         else:
+            # 判断目标目录是否存在，如果不存在则创建
+            if not os.path.exists(os.path.dirname(file_path)):
+                os.makedirs(os.path.dirname(file_path))
             # 文件不存在，创建一个新的工作簿
             wb = openpyxl.Workbook()
             sheet = wb.active
@@ -261,6 +266,18 @@ class FolderSelector(QWidget):
         self.ok_btn = QPushButton('确定')
         self.cancel_btn = QPushButton('取消')
 
+        # True/False 单选框：是否拷贝文件
+        self.copy_group = QGroupBox("是否拷贝文件", self)
+        self.copy_true = QRadioButton("是 (拷贝文件)", self)
+        self.copy_false = QRadioButton("否 (不拷贝文件)", self)
+        self.copy_false.setChecked(True)  # 默认选择“否”
+
+        # 设置单选框的布局
+        copy_layout = QHBoxLayout()
+        copy_layout.addWidget(self.copy_true)
+        copy_layout.addWidget(self.copy_false)
+        self.copy_group.setLayout(copy_layout)
+
         # 按钮点击事件
         self.select_folder1_btn.clicked.connect(self.select_folder1)
         self.select_folder2_btn.clicked.connect(self.select_folder2)
@@ -283,6 +300,8 @@ class FolderSelector(QWidget):
         folder2_layout.addWidget(self.folder2_path)
         folder2_layout.addWidget(self.select_folder2_btn)
         layout.addLayout(folder2_layout)
+
+        layout.addWidget(self.copy_group)  # 添加是否拷贝文件的单选框
 
         # 创建按钮：选择文件
         self.open_button = QPushButton('订单列表，请选择 .xlsx 文件')
@@ -340,7 +359,7 @@ class FolderSelector(QWidget):
             QMessageBox.warning(self, '警告', '订单excel选择有误！')
             return
         # 启动后台线程执行任务
-        self.thread = LoadThread(folder1, folder2,order_file)
+        self.thread = LoadThread(folder1, folder2,order_file,self.copy_true.isChecked())
         self.thread.finished_signal.connect(self.on_load_finished)
         self.thread.start()
 
