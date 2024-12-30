@@ -2,7 +2,7 @@ import os
 import sys
 
 
-from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog, QHBoxLayout, QLabel,QMessageBox
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog, QHBoxLayout, QLabel,QMessageBox,QTextEdit
 from PyQt5.QtCore import QThread, pyqtSignal
 
 
@@ -23,9 +23,9 @@ class LoadThread(QThread):
         # 在这个方法中执行耗时的任务
         try:
             print(f"开始加载文件夹1: {self.folder1}")
-            self.write_to_out_file(self.folder1)
+            file_names_str = self.write_to_out_file(self.folder1)
             # 完成后，发送信号到主线程
-            self.finished_signal.emit("处理完毕!")
+            self.finished_signal.emit(file_names_str)
         except Exception as e:
             self.finished_signal.emit(f"处理失败: {str(e)}")
 
@@ -42,6 +42,7 @@ class LoadThread(QThread):
             file_names_str = ','.join(file_names)
             # 写入文件并添加换行符
             txt_file.write(file_names_str + '\n')
+        return file_names_str
 
     def is_cdr_file(self,file_path):
         """检查文件是否为 .cdr 格式"""
@@ -87,6 +88,11 @@ class FolderSelector(QWidget):
         buttons_layout.addWidget(self.cancel_btn)
         layout.addLayout(buttons_layout)
 
+        # 用于显示提取的订单号列表
+        self.result_display = QTextEdit(self)
+        self.result_display.setReadOnly(True)  # 设置为只读，用户可以复制内容
+        layout.addWidget(self.result_display)
+
         self.setLayout(layout)
 
         # 窗口设置
@@ -124,14 +130,14 @@ class FolderSelector(QWidget):
 
     def on_load_finished(self, message):
         # 加载完成后弹出提示框
-        QMessageBox.information(self, '提示', message)
-
+        QMessageBox.information(self, '提示','操作成功')
+        self.result_display.setText(message)
         # 启用按钮
         self.ok_btn.setEnabled(True)
         self.cancel_btn.setEnabled(True)
 
-        # 如果操作完成，关闭窗口
-        self.close()
+        # # 如果操作完成，关闭窗口
+        # self.close()
 
 
 def main():
