@@ -5,6 +5,7 @@ from Demos.OpenEncryptedFileRaw import dst_dir
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QPushButton, QFileDialog, QHBoxLayout, QLabel,QMessageBox, QRadioButton, QGroupBox
 from PyQt5.QtCore import QThread, pyqtSignal
 import openpyxl,re,shutil
+import win32com.client
 
 
 
@@ -45,10 +46,186 @@ class LoadThread(QThread):
                     self.handleRow(cdr_files_map,row_data)
                 except Exception as e:
                     self.appendRow(row_data,self.error_package)
+            if self.copy_true:
+                # 自动放大cdr文件
+                cdr_base_white_path = os.path.join(self.folder2, '白底款')
+                cdr_base_transparent_path = os.path.join(self.folder2, '透明款')
+                self.magnify_cdr(cdr_base_white_path)
+                self.magnify_cdr(cdr_base_transparent_path)
+                self.delete_backup_cdr_files(self.folder2)
             # 完成后，发送信号到主线程
             self.finished_signal.emit("处理完毕!")
         except Exception as e:
             self.finished_signal.emit(f"处理失败: {str(e)}")
+
+    def get_cdr_files(self,directory):
+        cdr_files = []  # 用来存储符合条件的文件路径
+        for root, dirs, files in os.walk(directory):  # 遍历目录及其子目录
+            for file in files:
+                if file.endswith('.cdr'):  # 判断文件后缀是否为 .cdr
+                    cdr_files.append(os.path.join(root, file))  # 添加完整路径到列表中
+        return cdr_files
+    def magnify_cdr(self,cdr_base_path):
+
+        # 顺序放大cdr
+        # 遍历该目录下的所有子目录
+        if os.path.exists(cdr_base_path):
+            # 获取所有子目录，并过滤出数字目录
+            subdirs = [item for item in os.listdir(cdr_base_path)
+                       if os.path.isdir(os.path.join(cdr_base_path, item)) and item.isdigit()]
+
+            # 将目录名转换为整数并倒序排序
+            subdirs.sort(key=int, reverse=True)
+
+            # 按照倒序排序后的目录遍历
+            for subdir in subdirs:
+                item_path = os.path.join(cdr_base_path, subdir)
+
+                # 判断是否是子目录
+                if os.path.isdir(item_path):
+                    # 批量放大
+                    cdr_files = self.get_cdr_files(item_path)
+                    for cdr_file in cdr_files:
+                        self.handle_cdr(cdr_file,int(subdir))
+                    self.delete_backup_cdr_files(item_path)
+                else:
+                    print(f"文件: {subdir}")
+        else:
+            print("目录不存在")
+
+    def handle_cdr(self, cdr_file , selected_size):
+        try:
+            # 连接 CorelDRAW 应用
+            corel = win32com.client.Dispatch("CorelDRAW.Application")
+            corel.Visible = False  # 不显示CorelDRAW界面，可以设置为True查看
+            doc = corel.OpenDocument(cdr_file)
+            # 获取页面上的所有对象
+            page = doc.Pages(1)  # 获取第一页
+            shapes = page.Shapes
+
+            # 清空所有选择（通过取消选中所有图形）
+            for shape in shapes:
+                shape.Selected = False
+
+            # 选择所有对象
+            for shape in shapes:
+                shape.Selected = True
+
+            # 获取当前选中的对象
+            selection = corel.ActiveSelection
+
+            # 创建一个组
+            group = selection.Group()
+            # 获取组合的组的宽度和高度
+            group_width, group_height = self.get_shape_size_in_units(corel,group)
+            print(f"组合的组宽度: {group_width}, 高度: {group_height}")
+            width_or_height = self.get_value_based_on_threshold(group_width,group_height)
+            if width_or_height:
+                self.change_width(doc,group_width, group_height, selected_size*10)
+            else:
+                self.change_length(doc,group_width, group_height, selected_size*10)
+            # 保存为新的路径
+            doc.Save()
+            doc.Close()
+        except Exception as e:
+            # print(f"发生错误: {e}")
+            print("发生错误:", e)
+
+    # true 表示变更宽，false 表示变更长
+    def get_value_based_on_threshold(self, group_width, group_height, threshold_ratio=0.05):
+        # 计算两个值的差值
+        difference = abs(group_width - group_height)
+
+        # 计算差值与最大值的比例
+        max_value = max(group_width, group_height)
+        ratio = difference / max_value
+
+        # 根据比例判断返回较小值还是较大值
+        if ratio < threshold_ratio:
+            # 比例小于阈值，返回较小值，判断是长还是宽
+            if group_width < group_height:
+                return True
+            else:
+                return False
+        else:
+            # 比例大于或等于阈值，返回较大值，判断是长还是宽
+            if group_width > group_height:
+                return True
+            else:
+                return False
+    def change_length(self,doc,original_width, original_height, new_height):
+
+        # 计算缩放比例（目标高度 / 原始高度）
+        scale_factor = new_height / original_height
+
+        # 计算新的宽度
+        new_width = original_width * scale_factor
+
+        # 获取解散后的所有形状（shapes）
+        shapes = doc.ActivePage.Shapes
+        for shape in shapes:
+            shape.SetSize(shape.SizeWidth * scale_factor, shape.SizeHeight * scale_factor)
+
+        # 输出调整后的宽度和高度（单位：mm）
+        print(f"原始宽度：{original_width} mm, 原始高度：{original_height} mm")
+        print(f"缩放后的宽度：{new_width} mm, 缩放后的高度：{new_height} mm")
+
+    def change_width(self,doc,original_width, original_height, new_width):
+
+        # 计算缩放比例（目标高度 / 原始高度）
+        scale_factor = new_width / original_width
+
+        # 计算新的宽度
+        new_height = original_height * scale_factor
+
+        # 获取解散后的所有形状（shapes）
+        shapes = doc.ActivePage.Shapes
+        for shape in shapes:
+            shape.SetSize(shape.SizeWidth * scale_factor, shape.SizeHeight * scale_factor)
+
+        # 输出调整后的宽度和高度（单位：mm）
+        print(f"原始宽度：{original_width} mm, 原始高度：{original_height} mm")
+        print(f"缩放后的宽度：{new_width} mm, 缩放后的高度：{new_height} mm")
+
+    def get_shape_size_in_units(self,corel,shape):
+        """ 获取形状的宽度和高度，并根据单位转换为合适的单位 """
+        # 获取当前文档的单位
+        unit = corel.ActiveDocument.Unit  # 单位可以是 mm, cm, inches, pixels 等
+        width = shape.SizeWidth
+        height = shape.SizeHeight
+
+        # 英寸（inches）转换为厘米（cm）
+        if unit == 1:  # 1: inches
+            width *= 25.4  # 将英寸转换为厘米
+            height *= 25.4
+        elif unit == 2:  # 2: mm
+            # width /= 10  # 将毫米转换为厘米
+            # height /= 10
+            pass
+        elif unit == 3:  # 3: cm
+            width *= 10  # 厘米转毫米
+            height *= 10
+        elif unit == 7:  # 7: pixels
+            # 无需转换，单位已经是像素
+            pass
+        else:
+            print(f"不支持的单位: {unit}")
+
+        return width, height
+
+    def delete_backup_cdr_files(self,folder_path):
+        # 遍历文件夹中的所有文件
+        for root, dirs, files in os.walk(folder_path):
+            for file in files:
+                # 检查文件名是否以 "Backup_of_" 开头且以 ".cdr" 结尾
+                if file.startswith("Backup_of_") and file.endswith(".cdr"):
+                    file_path = os.path.join(root, file)
+                    try:
+                        # 删除文件
+                        os.remove(file_path)
+                        print(f"Deleted: {file_path}")
+                    except Exception as e:
+                        print(f"Failed to delete {file_path}: {e}")
 
     def appendRow(self, row_data,file_path):
         if os.path.exists(file_path):
@@ -97,11 +274,6 @@ class LoadThread(QThread):
             self.appendRow(row_data, self.remain_package)
             return
 
-        # if good_nums > 1:
-        #     self.appendRow(row_data, self.multiple_order_package)
-        #     return
-        # 拷贝文件，并把文件名改成订单编号
-        # dst_dir = os.path.join(self.folder2,str(longest_side))
         self.copy_cdr(row_data,style,longest_side,cdr_file_path)
 
     def copy_cdr(self,row_data,style, longest_side,cdr_file_path):
@@ -120,11 +292,10 @@ class LoadThread(QThread):
             good_nums = int(row_data.get('数量'))
         if good_nums > 1:
             dst_dir = os.path.join(dst_dir, str(good_nums))
-        if self.copy_true:
-            if good_nums == 1:
-                self.copy_file_with_new_name(cdr_file_path, dst_dir, order_num)
-            else:
-                self.copy_file_with_new_name_nums(cdr_file_path, dst_dir, good_nums,order_num)
+        if good_nums == 1:
+            self.copy_file_with_new_name(cdr_file_path, dst_dir, order_num)
+        else:
+            self.copy_file_with_new_name_nums(cdr_file_path, dst_dir, good_nums,order_num)
         cdr_excel_path = os.path.join(dst_dir, '统计数据.xlsx')
         self.appendCdrRow(row_data,style,longest_side,cdr_excel_path)
 
@@ -308,9 +479,9 @@ class FolderSelector(QWidget):
         self.cancel_btn = QPushButton('取消')
 
         # True/False 单选框：是否拷贝文件
-        self.copy_group = QGroupBox("是否拷贝文件", self)
-        self.copy_true = QRadioButton("是 (拷贝文件)", self)
-        self.copy_false = QRadioButton("否 (不拷贝文件)", self)
+        self.copy_group = QGroupBox("是否自动放大文件", self)
+        self.copy_true = QRadioButton("是 (自动放大cdr文件)", self)
+        self.copy_false = QRadioButton("否 (不放大cdr文件)", self)
         self.copy_false.setChecked(True)  # 默认选择“否”
 
         # 设置单选框的布局
