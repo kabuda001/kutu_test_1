@@ -296,7 +296,7 @@ class LoadThread(QThread):
             self.copy_file_with_new_name(cdr_file_path, dst_dir, order_num)
         else:
             self.copy_file_with_new_name_nums(cdr_file_path, dst_dir, good_nums,order_num)
-        cdr_excel_path = os.path.join(dst_dir, '统计数据.xlsx')
+        cdr_excel_path = os.path.join(self.folder2, '统计数据.xlsx')
         self.appendCdrRow(row_data,style,longest_side,cdr_excel_path)
 
     def appendCdrRow(self, row_data,style, longest_side, file_path):
