@@ -23,6 +23,19 @@ class LoadThread(QThread):
         self.error_package = os.path.join(self.folder2, '解析异常的订单.xlsx')
         self.multiple_order_package = os.path.join(self.folder2, '包含多件的订单.xlsx')
         self.remain_package = os.path.join(self.folder2, '有备注的订单.xlsx')
+        self.no_track_number_package = os.path.join(self.folder2, '无快递单号的订单.xlsx')
+        self.mix_cdr_package = os.path.join(self.folder2, '混合单.xlsx')
+        # 缺cdr的快递单号
+        self.lost_cdr_list = []
+        # 错误的快递单号
+        self.error_list = []
+        # 有备注的快递单号
+        self.remain_list = []
+        # key：快递单号 value: 一个或者多个订单
+        self.tracking_map = {}
+        # 合单
+        self.multiple_orders_map = {}
+
 
     def run(self):
         # 在这个方法中执行耗时的任务
@@ -43,21 +56,42 @@ class LoadThread(QThread):
             excel_data = self.read_excel(order_file=self.order_file)
             for row_data in excel_data.values():
                 try:
-                    self.handleRow(cdr_files_map,row_data)
+                    self.handleRow1(cdr_files_map,row_data)
                 except Exception as e:
                     self.appendRow(row_data,self.error_package)
+            # 处理合单和非合单
+            self.handleTrackMap(cdr_files_map)
+            self.handleMultipleOrdersMap(cdr_files_map)
             if self.copy_true:
                 # 自动放大cdr文件
-                cdr_base_white_path = os.path.join(self.folder2, '白底款')
-                cdr_base_transparent_path = os.path.join(self.folder2, '透明款')
+                # 处理非合单
+                base_path = os.path.join(self.folder2, '非合单')
+                cdr_base_white_path = os.path.join(base_path, '白底款')
+                cdr_base_transparent_path = os.path.join(base_path, '透明款')
                 self.magnify_cdr(cdr_base_white_path)
                 self.magnify_cdr(cdr_base_transparent_path)
+                # 处理合单
+                orderMap = self.get_multiple_size() # key：订单号 value:最长边
+                base_multiple_path = os.path.join(self.folder2, '合单')
+                cdr_base_multiple_white_path = os.path.join(base_multiple_path, '白底款')
+                cdr_base_multiple_transparent_path = os.path.join(base_multiple_path, '透明款')
+                self.magnify_mulit_cdr(cdr_base_multiple_white_path,orderMap)
+                self.magnify_mulit_cdr(cdr_base_multiple_transparent_path,orderMap)
                 self.delete_backup_cdr_files(self.folder2)
             # 完成后，发送信号到主线程
             self.finished_signal.emit("处理完毕!")
         except Exception as e:
             self.finished_signal.emit(f"处理失败: {str(e)}")
-
+    def get_multiple_size(self):
+        base_path = os.path.join(self.folder2, '合单')
+        cdr_excel_path = os.path.join(base_path, '统计数据.xlsx')
+        excel_data = self.read_excel(order_file=cdr_excel_path)
+        orderMap = {}
+        for row_data in excel_data.values():
+            order_num = row_data.get('订单编号')
+            longest_side = row_data.get('最长边')
+            orderMap[order_num] = longest_side
+        return orderMap
     def get_cdr_files(self,directory):
         cdr_files = []  # 用来存储符合条件的文件路径
         for root, dirs, files in os.walk(directory):  # 遍历目录及其子目录
@@ -92,6 +126,13 @@ class LoadThread(QThread):
                     print(f"文件: {subdir}")
         else:
             print("目录不存在")
+    def magnify_mulit_cdr(self,cdr_base_path,orderMap):
+        for root, dirs, files in os.walk(cdr_base_path):
+            for file in files:
+                if self.is_cdr_file(file):
+                    file_name = os.path.splitext(os.path.basename(file))[0] # 获取文件名（不含路径）
+                    parts = file_name.split("_")
+                    self.handle_cdr(os.path.join(root, file), int(orderMap.get(parts[0])))
 
     def handle_cdr(self, cdr_file , selected_size):
         try:
@@ -250,8 +291,105 @@ class LoadThread(QThread):
             return True
         return False
 
+    def handleRow1(self,cdr_files_map,row_data):
+        track_number = row_data.get('快递单号')
+        specification_name_str = row_data.get('规格名称')
+        style, longest_side = self.parse_specification_name_str(specification_name_str)
+        cdr_file_path = cdr_files_map.get(style)
+        if not cdr_file_path:
+            # 款号不存在
+            self.appendRow(row_data, self.lack_package)
+            if track_number:
+                self.lost_cdr_list.append(track_number)
+            return
+        if not track_number:
+            # 没有快递单号
+            self.appendRow(row_data,self.no_track_number_package)
+            return
+        if not self.is_valid_longest_side(longest_side):
+            # 最长边解析异常
+            self.appendRow(row_data, self.error_package)
+            self.error_list.append(track_number)
+            return
+        # 买家留言
+        if not self.is_empty_string(row_data.get('备注')) or not self.is_empty_string(row_data.get('买家留言')):
+
+            self.appendRow(row_data, self.remain_package)
+            self.remain_list.append(track_number)
+            return
+        # 如果找到快递单号，将其作为 key，整行数据添加到对应的列表中
+        if track_number in self.tracking_map:
+            self.tracking_map[track_number].append(row_data)
+        else:
+            self.tracking_map[track_number] = [row_data]
+
+    def handleTrackMap(self,cdr_files_map):
+        for tracking_number, rows in self.tracking_map.items():
+            print(f"快递单号: {tracking_number}")
+            if tracking_number in self.lost_cdr_list:
+                for row in rows:
+                    # 缺图
+                    self.appendRow(row, self.lack_package)
+                continue
+            if tracking_number in self.error_list:
+                for row in rows:
+                    # 异常解析
+                    self.appendRow(row, self.error_package)
+                continue
+            if tracking_number in self.remain_list:
+                for row in rows:
+                    # 有备注
+                    self.appendRow(row, self.remain_package)
+                continue
+            if len(rows) == 1:
+                # 处理单行
+                self.handleSingle(cdr_files_map,rows[0])
+                continue
+            if len(rows) > 1:
+                # 处理合单
+                style_list=[]
+                for row in rows:
+                    specification_name_str = row.get('规格名称')
+                    style, longest_side = self.parse_specification_name_str(specification_name_str)
+                    style_list.append(style)
+                # 统计包含 "T" 或 "t" 的字符串数量
+                contains_t_count = sum(1 for s in style_list if "T" in s or "t" in s)
+
+                # 统计不包含 "T" 或 "t" 的字符串数量
+                not_contains_t_count = len(style_list) - contains_t_count
+                # 判断是否部分包含，部分不包含
+                if contains_t_count > 0 and not_contains_t_count > 0:
+                    for row in rows:
+                        self.appendRow(row, self.mix_cdr_package)
+                    continue
+            if len(rows) > 1:
+                # 正常合单
+                self.multiple_orders_map[tracking_number] = rows
+
+    def handleMultipleOrdersMap(self, cdr_files_map):
+        # 处理合单
+        for tracking_number, rows in self.multiple_orders_map.items():
+            much_longest_side = 0
+            for row in rows:
+                specification_name_str = row.get('规格名称')
+                style, longest_side = self.parse_specification_name_str(specification_name_str)
+                if longest_side > much_longest_side:
+                    much_longest_side = longest_side
+            self.handleMultiple(cdr_files_map,rows,much_longest_side,tracking_number)
+    def handleMultiple(self,cdr_files_map,rows,much_longest_side,tracking_number):
+        for row in rows:
+            specification_name_str = row.get('规格名称')
+            style, longest_side = self.parse_specification_name_str(specification_name_str)
+            cdr_file_path = cdr_files_map.get(style)
+            self.copy_cdr_Multiple(row, style, longest_side, cdr_file_path,much_longest_side,tracking_number)
+    def handleSingle(self,cdr_files_map,row_data):
+        specification_name_str = row_data.get('规格名称')
+        style, longest_side = self.parse_specification_name_str(specification_name_str)
+        cdr_file_path = cdr_files_map.get(style)
+        self.copy_cdr2(row_data, style, longest_side, cdr_file_path)
     # 处理每一行
     def handleRow(self,cdr_files_map,row_data):
+
         order_num = row_data.get('订单编号')
         if not order_num:
             order_num = row_data.get('订单号')
@@ -275,6 +413,50 @@ class LoadThread(QThread):
             return
 
         self.copy_cdr(row_data,style,longest_side,cdr_file_path)
+    def copy_cdr2(self,row_data,style, longest_side,cdr_file_path):
+        base_path = os.path.join(self.folder2,'非合单')
+        order_num = row_data.get('订单编号')
+        if not order_num:
+            order_num = row_data.get('订单号')
+        cdr_base_path = os.path.join(base_path,'白底款')
+        if 'T' in style or 't' in style:
+            # 透明款
+            cdr_base_path =  os.path.join(base_path,'透明款')
+        # 拷贝文件，并把文件名改成订单编号
+        dst_dir = os.path.join(cdr_base_path, str(longest_side))
+        # 处理多件
+        good_nums = int(row_data.get('商品数量'))
+        if not good_nums:
+            good_nums = int(row_data.get('数量'))
+        if good_nums > 1:
+            dst_dir = os.path.join(dst_dir, str(good_nums))
+        if good_nums == 1:
+            self.copy_file_with_new_name(cdr_file_path, dst_dir, order_num)
+        else:
+            self.copy_file_with_new_name_nums(cdr_file_path, dst_dir, good_nums,order_num)
+        cdr_excel_path = os.path.join(base_path, '统计数据.xlsx')
+        self.appendCdrRow(row_data,style,longest_side,cdr_excel_path)
+
+    def copy_cdr_Multiple(self,row_data,style, longest_side,cdr_file_path,much_longest_side,tracking_number):
+        base_path = os.path.join(self.folder2,'合单')
+        order_num = row_data.get('订单编号')
+        if not order_num:
+            order_num = row_data.get('订单号')
+        cdr_base_path = os.path.join(base_path,'白底款')
+        if 'T' in style or 't' in style:
+            # 透明款
+            cdr_base_path =  os.path.join(base_path,'透明款')
+        cdr_multiple_base_path = os.path.join(cdr_base_path,str(much_longest_side)+"_"+str(tracking_number))
+        # 处理多件
+        good_nums = int(row_data.get('商品数量'))
+        if not good_nums:
+            good_nums = int(row_data.get('数量'))
+        if good_nums == 1:
+            self.copy_file_with_new_name(cdr_file_path, cdr_multiple_base_path, order_num)
+        else:
+            self.copy_file_with_new_name_nums(cdr_file_path, cdr_multiple_base_path, good_nums,order_num)
+        cdr_excel_path = os.path.join(base_path, '统计数据.xlsx')
+        self.appendCdrRow(row_data,style,longest_side,cdr_excel_path)
 
     def copy_cdr(self,row_data,style, longest_side,cdr_file_path):
         order_num = row_data.get('订单编号')
@@ -306,8 +488,10 @@ class LoadThread(QThread):
         order_num =  row_data.get('订单编号')
         if not order_num:
             order_num = row_data.get('订单号')
+        track_number = row_data.get('快递单号')
         new_row_data  = {
             '订单编号': order_num,
+            '快递单号': track_number,
             '店铺名称': row_data.get('店铺名称'),
             '规格名称': row_data.get('规格名称'),
             '规格':style,
