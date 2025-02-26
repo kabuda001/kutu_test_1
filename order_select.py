@@ -33,6 +33,8 @@ class LoadThread(QThread):
         self.remain_list = []
         # key：快递单号 value: 一个或者多个订单
         self.tracking_map = {}
+        # key: 快递单号 value: 一个或者多个尺寸
+        # self.tracking_length_map = {}
         # 合单
         self.multiple_orders_map = {}
 
@@ -457,6 +459,18 @@ class LoadThread(QThread):
             self.copy_file_with_new_name_nums(cdr_file_path, cdr_multiple_base_path, good_nums,order_num)
         cdr_excel_path = os.path.join(base_path, '统计数据.xlsx')
         self.appendCdrRow(row_data,style,longest_side,cdr_excel_path)
+        # 创建尺寸的文件
+        longest_side_file_name = str(order_num) + "_" + str(longest_side)
+        self.creat_txt_file(cdr_multiple_base_path,longest_side_file_name)
+
+    def creat_txt_file(self,path,file_name):
+        try:
+            file_path = os.path.join(path, file_name)
+            with open(file_path, 'w', encoding='utf-8') as f:
+                pass  # 可以在这里写入初始内容
+            print(f"文件已成功创建：{file_path}")
+        except Exception as e:
+            print("发生错误:", e)
 
     def copy_cdr(self,row_data,style, longest_side,cdr_file_path):
         order_num = row_data.get('订单编号')
