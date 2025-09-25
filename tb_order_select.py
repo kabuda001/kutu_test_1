@@ -465,12 +465,28 @@ class LoadThread(QThread):
 
     def creat_txt_file(self,path,file_name):
         try:
-            file_path = os.path.join(path, file_name)
+            # 分离文件名和扩展名
+            base_name, ext = os.path.splitext(file_name)
+            counter = 1
+            current_file_name = file_name
+
+            # 检查文件是否存在，如果存在则生成新的文件名
+            while True:
+                file_path = os.path.join(path, current_file_name)
+                if not os.path.exists(file_path):
+                    break  # 找到可用的文件名
+                # 生成新的文件名（添加数字后缀）
+                current_file_name = f"{base_name}_{counter}{ext}"
+                counter += 1
+
+            # 创建文件
             with open(file_path, 'w', encoding='utf-8') as f:
                 pass  # 可以在这里写入初始内容
             print(f"文件已成功创建：{file_path}")
+            return file_path  # 返回实际创建的文件路径
         except Exception as e:
             print("发生错误:", e)
+            return None
 
     def copy_cdr(self,row_data,style, longest_side,cdr_file_path):
         order_num = row_data.get('订单编号')
@@ -591,8 +607,25 @@ class LoadThread(QThread):
             os.makedirs(dst_dir)
 
         # 拷贝文件
-        shutil.copy(src_file, dst_file)
-        print(f"文件 '{src_file}' 已成功拷贝到 '{dst_file}'.")
+        # 检查目标文件是否存在
+        if not os.path.exists(dst_file):
+            shutil.copy(src_file, dst_file)
+            print(f"文件 '{src_file}' 已成功拷贝到 '{dst_file}'.")
+            return
+
+        # 如果存在，则生成新的文件名
+        base, ext = os.path.splitext(dst_file)
+        counter = 1
+
+        # 找到第一个可用的文件名
+        while True:
+            new_target = f"{base}_{counter}{ext}"
+            if not os.path.exists(new_target):
+                shutil.copy(src_file, new_target)
+                print(f"文件 '{src_file}' 已成功拷贝到 '{new_target}'.")
+                return
+            counter += 1
+
 
     def is_valid_longest_side(self,longest_side):
         # 定义允许的数值集合
@@ -629,7 +662,7 @@ class LoadThread(QThread):
         data = {}
         for row in sheet.iter_rows(min_row=2, values_only=True):
             row_data = {header[i]: row[i] for i in range(len(header))}
-            data[row_data[header[1]]] = row_data  # 使用第一列的值作为外层字典的 key
+            data[row_data[header[2]]] = row_data  # 使用第一列的值作为外层字典的 key
         return data
 
     def is_cdr_file(self,file_path):
