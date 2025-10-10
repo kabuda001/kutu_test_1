@@ -384,37 +384,13 @@ class LoadThread(QThread):
             style, longest_side = self.parse_specification_name_str(specification_name_str)
             cdr_file_path = cdr_files_map.get(style)
             self.copy_cdr_Multiple(row, style, longest_side, cdr_file_path,much_longest_side,tracking_number)
+
     def handleSingle(self,cdr_files_map,row_data):
         specification_name_str = row_data.get('商品规格')
         style, longest_side = self.parse_specification_name_str(specification_name_str)
         cdr_file_path = cdr_files_map.get(style)
         self.copy_cdr2(row_data, style, longest_side, cdr_file_path)
-    # 处理每一行
-    def handleRow(self,cdr_files_map,row_data):
 
-        order_num = row_data.get('订单编号')
-        if not order_num:
-            order_num = row_data.get('订单号')
-        if not order_num:
-            self.appendRow(row_data, self.error_package)
-            return
-        specification_name_str  = row_data.get('商品规格')
-        style,longest_side = self.parse_specification_name_str(specification_name_str)
-        cdr_file_path = cdr_files_map.get(style)
-        if not cdr_file_path:
-            # 款号不存在
-            self.appendRow(row_data,self.lack_package)
-            return
-        if not self.is_valid_longest_side(longest_side):
-            # 最长边解析异常
-            self.appendRow(row_data, self.error_package)
-            return
-        # 买家留言
-        if not self.is_empty_string(row_data.get('备注')) or not self.is_empty_string(row_data.get('买家留言')):
-            self.appendRow(row_data, self.remain_package)
-            return
-
-        self.copy_cdr(row_data,style,longest_side,cdr_file_path)
     def copy_cdr2(self,row_data,style, longest_side,cdr_file_path):
         base_path = os.path.join(self.folder2,'非合单')
         order_num = row_data.get('订单编号')
@@ -447,7 +423,7 @@ class LoadThread(QThread):
         cdr_base_path = os.path.join(base_path,'白底款')
         if 'T' in style or 't' in style:
             # 透明款
-            cdr_base_path =  os.path.join(base_path,'透明款')
+            cdr_base_path = os.path.join(base_path,'透明款')
         cdr_multiple_base_path = os.path.join(cdr_base_path,str(much_longest_side)+"_"+str(tracking_number))
         # 处理多件
         good_nums = int(row_data.get('商品数量'))
@@ -460,7 +436,7 @@ class LoadThread(QThread):
         cdr_excel_path = os.path.join(base_path, '统计数据.xlsx')
         self.appendCdrRow(row_data,style,longest_side,cdr_excel_path)
         # 创建尺寸的文件
-        longest_side_file_name = str(order_num) + "_" + str(longest_side)
+        longest_side_file_name = str(order_num) + "_" + str(longest_side)+ "_" + str(good_nums)
         self.creat_txt_file(cdr_multiple_base_path,longest_side_file_name)
 
     def creat_txt_file(self,path,file_name):
@@ -488,28 +464,6 @@ class LoadThread(QThread):
             print("发生错误:", e)
             return None
 
-    def copy_cdr(self,row_data,style, longest_side,cdr_file_path):
-        order_num = row_data.get('订单编号')
-        if not order_num:
-            order_num = row_data.get('订单号')
-        cdr_base_path = os.path.join(self.folder2,'白底款')
-        if 'T' in style or 't' in style:
-            # 透明款
-            cdr_base_path =  os.path.join(self.folder2,'透明款')
-        # 拷贝文件，并把文件名改成订单编号
-        dst_dir = os.path.join(cdr_base_path, str(longest_side))
-        # 处理多件
-        good_nums = int(row_data.get('商品数量'))
-        if not good_nums:
-            good_nums = int(row_data.get('数量'))
-        if good_nums > 1:
-            dst_dir = os.path.join(dst_dir, str(good_nums))
-        if good_nums == 1:
-            self.copy_file_with_new_name(cdr_file_path, dst_dir, order_num)
-        else:
-            self.copy_file_with_new_name_nums(cdr_file_path, dst_dir, good_nums,order_num)
-        cdr_excel_path = os.path.join(self.folder2, '统计数据.xlsx')
-        self.appendCdrRow(row_data,style,longest_side,cdr_excel_path)
 
     def appendCdrRow(self, row_data,style, longest_side, file_path):
         num = row_data.get('数量')
@@ -558,8 +512,8 @@ class LoadThread(QThread):
         if new_name is None:
             new_name = src_filename  # 保持原文件名的基础部分
 
-        for idx, num in enumerate(range(1, good_nums + 1), start=1):
-            if idx == 1:  # 第一个元素命名为 xxx
+        for idx, num in enumerate(range(0, good_nums), start=0):
+            if idx == 0:  # 第一个元素命名为 xxx
                 # 构建目标文件名，保持原有扩展名
                 new_file_name = new_name + file_extension
 
@@ -569,24 +523,36 @@ class LoadThread(QThread):
                 # 判断目标目录是否存在，如果不存在则创建
                 if not os.path.exists(dst_dir):
                     os.makedirs(dst_dir)
-
                 # 拷贝文件
-                shutil.copy(src_file, dst_file)
-                print(f"文件 '{src_file}' 已成功拷贝到 '{dst_file}'.")
+                # 检查目标文件是否存在
+                if not os.path.exists(dst_file):
+                    shutil.copy(src_file, dst_file)
+                    print(f"文件 '{src_file}' 已成功拷贝到 '{dst_file}'.")
+                    continue
+                # 如果存在，则生成新的文件名
+                base, ext = os.path.splitext(dst_file)
+                counter = 1
+
+                # 找到第一个可用的文件名
+                while True:
+                    new_target = f"{base}_{counter}{ext}"
+                    if not os.path.exists(new_target):
+                        shutil.copy(src_file, new_target)
+                        print(f"文件 '{src_file}' 已成功拷贝到 '{new_target}'.")
+                        break
+                    counter += 1
             else:  # 后续元素命名为 xxx_2, xxx_3, ...
-                # 构建目标文件名，保持原有扩展名
-                new_file_name = new_name+'_'+str(idx) + file_extension
-
-                # 构建目标文件路径
-                dst_file = os.path.join(dst_dir, new_file_name)
-
-                # 判断目标目录是否存在，如果不存在则创建
-                if not os.path.exists(dst_dir):
-                    os.makedirs(dst_dir)
-
-                # 拷贝文件
-                shutil.copy(src_file, dst_file)
-                print(f"文件 '{src_file}' 已成功拷贝到 '{dst_file}'.")
+                counter = idx
+                # 找到第一个可用的文件名
+                while True:
+                    new_target = f"{new_name}_{counter}{file_extension}"
+                    # 构建目标文件路径
+                    dst_file = os.path.join(dst_dir, new_target)
+                    if not os.path.exists(dst_file):
+                        shutil.copy(src_file, dst_file)
+                        print(f"文件 '{src_file}' 已成功拷贝到 '{dst_file}'.")
+                        break
+                    counter += 1
 
     def copy_file_with_new_name(self,src_file, dst_dir, new_name=None):
         # 获取源文件的文件名和扩展名
