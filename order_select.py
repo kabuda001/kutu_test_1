@@ -295,7 +295,7 @@ class LoadThread(QThread):
 
     def handleRow1(self,cdr_files_map,row_data):
         track_number = row_data.get('快递单号')
-        specification_name_str = row_data.get('规格名称')
+        specification_name_str = row_data.get('规格简称') or row_data.get('规格名称')
         style, longest_side = self.parse_specification_name_str(specification_name_str)
         cdr_file_path = cdr_files_map.get(style)
         if not cdr_file_path:
@@ -351,7 +351,7 @@ class LoadThread(QThread):
                 # 处理合单
                 style_list=[]
                 for row in rows:
-                    specification_name_str = row.get('规格名称')
+                    specification_name_str = row.get('规格简称') or row.get('规格名称')
                     style, longest_side = self.parse_specification_name_str(specification_name_str)
                     style_list.append(style)
                 # 统计包含 "T" 或 "t" 的字符串数量
@@ -373,19 +373,19 @@ class LoadThread(QThread):
         for tracking_number, rows in self.multiple_orders_map.items():
             much_longest_side = 0
             for row in rows:
-                specification_name_str = row.get('规格名称')
+                specification_name_str = row.get('规格简称') or row.get('规格名称')
                 style, longest_side = self.parse_specification_name_str(specification_name_str)
                 if longest_side > much_longest_side:
                     much_longest_side = longest_side
             self.handleMultiple(cdr_files_map,rows,much_longest_side,tracking_number)
     def handleMultiple(self,cdr_files_map,rows,much_longest_side,tracking_number):
         for row in rows:
-            specification_name_str = row.get('规格名称')
+            specification_name_str = row.get('规格简称') or row.get('规格名称')
             style, longest_side = self.parse_specification_name_str(specification_name_str)
             cdr_file_path = cdr_files_map.get(style)
             self.copy_cdr_Multiple(row, style, longest_side, cdr_file_path,much_longest_side,tracking_number)
     def handleSingle(self,cdr_files_map,row_data):
-        specification_name_str = row_data.get('规格名称')
+        specification_name_str = row_data.get('规格简称') or row_data.get('规格名称')
         style, longest_side = self.parse_specification_name_str(specification_name_str)
         cdr_file_path = cdr_files_map.get(style)
         self.copy_cdr2(row_data, style, longest_side, cdr_file_path)
@@ -398,7 +398,7 @@ class LoadThread(QThread):
         if not order_num:
             self.appendRow(row_data, self.error_package)
             return
-        specification_name_str  = row_data.get('规格名称')
+        specification_name_str  = row_data.get('规格简称') or row_data.get('规格名称')
         style,longest_side = self.parse_specification_name_str(specification_name_str)
         cdr_file_path = cdr_files_map.get(style)
         if not cdr_file_path:
@@ -507,7 +507,7 @@ class LoadThread(QThread):
             '订单编号': order_num,
             '快递单号': track_number,
             '店铺名称': row_data.get('店铺名称'),
-            '规格名称': row_data.get('规格名称'),
+            '规格名称': row_data.get('规格简称') or row_data.get('规格名称'),
             '规格':style,
             '最长边':longest_side,
             '数量':num,
